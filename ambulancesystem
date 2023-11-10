@@ -1,0 +1,158 @@
+В начало мода:
+
+new bool:WorkAmbulance[MAX_PLAYERS],
+	AmbActor[MAX_PLAYERS],
+	Float:AmbPos[MAX_PLAYERS][3],
+	Text3D:AmbText[MAX_PLAYERS],
+	AmbTime[MAX_PLAYERS],
+	AmbTimer[MAX_PLAYERS];
+	
+#define MAX_AMBCHECK 15
+new Float:ambcheck[MAX_AMBCHECK][4] = { // Пациенты на улицах ЛС
+	{1157.4241,-1647.0736,13.9531,358.9489},
+	{1068.9163,-1579.2065,13.5369,1.5212},
+	{1032.5066,-1533.8118,13.5477,257.7444},
+	{860.6423,-1387.6718,13.6874,180.1954},
+	{782.6679,-1327.0530,13.5469,358.9694},
+	{571.0466,-1332.9706,13.5703,9.3959},
+	{549.5745,-1530.8668,14.8442,89.9373},
+	{464.9781,-1600.7238,25.4689,2.1782},
+	{367.1135,-1640.0486,32.8906,170.3016},
+	{284.6779,-1645.1097,33.3125,355.8695},
+	{240.7161,-1456.1244,13.4936,42.2992},
+	{352.8119,-1365.0148,14.4440,205.2623},
+	{754.5828,-1071.9729,23.8183,32.3670},
+	{777.2309,-1038.7736,24.2684,194.1167},
+	{1061.1368,-969.5307,42.7969,7.8569}
+};
+	
+
+В OnPlayerDisconnect(playerid, reason):
+
+WorkAmbulance[playerid] = false;
+AmbPos[playerid][0] = AmbPos[playerid][1] = AmbPos[playerid][2] = 0.0;
+AmbTime[playerid] = -1;
+KillTimer(AmbTimer[playerid]);
+DestroyDynamic3DTextLabel(AmbText[playerid]);
+
+
+В OnPlayerEnterCheckpoint(playerid):
+
+if(GetPVarInt(playerid, #AmbCheckk) == 1)
+{
+	if(GetVehicleModel(GetPlayerVehicleID(playerid)) != 416) return SendClientMessage(playerid, -1, "Вы не в карете скорой помощи!");
+ 	SendClientMessage(playerid, -1, "Вы доставили пострадавшего в больницу и спасли ему жизнь!");
+  	AmbTime[playerid] -= 1;
+   	DisablePlayerCheckpoint(playerid);
+    GivePlayerMoney(playerid, 500); // Выдаём ЗП
+    SetTimerEx("Ambulance", 1000*60*2, false, "d", playerid);
+    SendClientMessage(playerid, -1, "Ожидайте новый вызов! (2 минуты)");
+}
+if(GetPVarInt(playerid, #AmbCheck) == 1)
+{
+	if(GetVehicleModel(GetPlayerVehicleID(playerid)) != 416) return SendClientMessage(playerid, -1, "Вы не в карете скорой помощи!");
+	DisablePlayerCheckpoint(playerid);
+	SendClientMessage(playerid, -1, "[Подсказка]: Подойдите к пострадавшему и проверьте его состояние");
+	AmbText[playerid] = CreateDynamic3DTextLabel("Пострадавший\nНажмите: ALT", -1, AmbPos[playerid][0], AmbPos[playerid][1], AmbPos[playerid][2], 10.0,INVALID_PLAYER_ID,INVALID_VEHICLE_ID,0,0,0,-1);
+	DeletePVar(playerid, #AmbCheck);
+	AmbTime[playerid] -= 1;
+}
+
+
+В OnPlayerKeyStateChange(playerid, newkeys, oldkeys):
+
+if(newkeys == KEY_WALK)
+{
+	if(IsPlayerInRangeOfPoint(playerid, 2.0, AmbPos[playerid][0], AmbPos[playerid][1], AmbPos[playerid][2]))
+ 	{
+		SendClientMessage(playerid, -1, "Вы проверили состояние пострадавшего. Срочно доставьте его в больницу!");
+   		SetPlayerCheckpoint(playerid, 1186.4553,-1324.4355,13.7096, 7.5); // Больница ЛС
+    	SetPVarInt(playerid, #AmbCheckk, 1);
+   		DestroyActor(AmbActor[playerid]);
+   		DestroyDynamic3DTextLabel(AmbText[playerid]);
+   		AmbTime[playerid] = 120;
+ 	}
+}
+    
+
+Convert(number)
+{
+	new hours = 0, mins = 0, secs = 0, stringt[20];
+	hours = floatround(number / 3600);
+	mins = floatround((number / 60) - (hours * 60));
+	secs = floatround(number - ((hours * 3600) + (mins * 60)));
+	if(hours > 0) format(stringt, sizeof(stringt), "%d:%02d:%02d", hours, mins, secs);
+	else format(stringt, sizeof(stringt), "%d:%02d", mins, secs);
+	return stringt;
+}
+new stramb[10];
+@AmbSecond(playerid)
+{
+	for(new i = 0, j = GetPlayerPoolSize(); i <= j; i++)
+	{
+	    if(AmbTime[i] != -1)
+	    {
+	        AmbTime[i] -= 1;
+	        stramb[0] = EOS;
+	        format(stramb, 10, "~r~%s", Convert(AmbTime[i]));
+	        GameTextForPlayer(i, stramb, 5000, 5);
+	        if(AmbTime[i] == 0)
+	        {
+	            AmbTime[i] = -1;
+	            WorkAmbulance[i] = false;
+	            SendClientMessage(i, -1, "Миссия скорой помощи провалена...");
+	            DisablePlayerCheckpoint(i);
+	            if(GetPVarInt(i, #AmbCheck) == 1)
+	            {
+           			DestroyActor(AmbActor[i]);
+    				DestroyDynamic3DTextLabel(AmbText[i]);
+    			}
+    			DeletePVar(i, #AmbCheck);
+    			DeletePVar(i, #AmbCheckk);
+    			KillTimer(AmbTimer[i]);
+	        }
+	    }
+	}
+	return 1;
+}
+CMD:ambulance(playerid)
+{
+    if(!IsPlayerConnected(playerid)) return 1;
+	if(!IsAMedic(playerid)) return SendClientMessage(playerid, -1, "Вы не медик!"); // Проверка на медика
+	if(GetVehicleModel(GetPlayerVehicleID(playerid)) != 416) return SendClientMessage(playerid, -1, "Вы не в карете скорой помощи!");
+	if(!WorkAmbulance[playerid])
+	{
+	    WorkAmbulance[playerid] = true;
+	    SetTimerEx("Ambulance", 1000*60*2, false, "d", playerid);
+	    SendClientMessage(playerid, -1, "Вы начали рабочий день в скорой помощи. Ожидайте вызова (2 минуты)");
+	    SendClientMessage(playerid, -1, "[Подсказка]: Для завершения рабочего дня, введите: /ambulance");
+	}
+	else
+	{
+	    SendClientMessage(playerid, -1, "Рабочий день в скорой помощи окончен");
+		WorkAmbulance[playerid] = false;
+		AmbPos[playerid][0] = AmbPos[playerid][1] = AmbPos[playerid][2] = 0.0;
+		AmbTime[playerid] = -1;
+		KillTimer(AmbTimer[playerid]);
+		DestroyDynamic3DTextLabel(AmbText[playerid]);
+	}
+	return 1;
+}
+@Ambulance(playerid)
+{
+	if(!WorkAmbulance[playerid]) return 1;
+ 	new checkamb = random(MAX_AMBCHECK),
+ 	    skina = RandomEx(1, 311);
+ 	SetPlayerCheckpoint(playerid, ambcheck[checkamb][0], ambcheck[checkamb][1], ambcheck[checkamb][2], 7.5);
+	AmbActor[playerid] = CreateActor(skina, ambcheck[checkamb][0], ambcheck[checkamb][1], ambcheck[checkamb][2], ambcheck[checkamb][3]);
+	SetActorInvulnerable(AmbActor[playerid], false);
+	ApplyActorAnimation(AmbActor[playerid], "CRACK", "Crckidle1", 4.1, 1, 0, 0, 0, 0);
+	AmbPos[playerid][0] = ambcheck[checkamb][0];
+	AmbPos[playerid][1] = ambcheck[checkamb][1];
+	AmbPos[playerid][2] = ambcheck[checkamb][2];
+	SetPVarInt(playerid, #AmbCheck, 1);
+	AmbTime[playerid] = 120;
+	SetTimerEx("AmbSecond", 1000, false, "i", playerid);
+	SendClientMessage(playerid, -1, "Диспетчер: Поступил вызов, сообщается что прохожему стало плохо. Отправляйтесь туда!");
+	return 1;
+}
